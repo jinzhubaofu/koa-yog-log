@@ -1,6 +1,6 @@
 {
   "name": "koa-yog-log",
-  "version": "0.0.24",
+  "version": "0.1.0",
   "description": "koa yog logger",
   "main": "index.js",
   "scripts": {
