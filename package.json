@@ -1,7 +1,7 @@
 {
-  "name": "yog-log",
+  "name": "koa-yog-log",
   "version": "0.0.24",
-  "description": "yog logger",
+  "description": "koa yog logger",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

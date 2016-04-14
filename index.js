@@ -1,20 +1,25 @@
-var fs = require('fs'),
-    path = require('path'),
-    domain = require('domain'),
-    crypto = require('crypto');
+/**
+ * @file koa-yog-log
+ * @author leon(ludafa@outlook.com)
+ */
 
-var util = require('./lib/util.js'),
-    stackTrace = require('stack-trace'),
-    // colors = require('colors'),
-    mkdirp = require('mkdirp');
+'use strict';
 
-var data_path = __dirname + '/'; //模板地址默认在模块里
-var log_path = __dirname + '/log';
-var LOGGER_CACHE = {};
-var LOGFILE_CACHE = {};
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const colors = require('colors');
+const util = require('./lib/util.js');
+const stackTrace = require('stack-trace');
+const mkdirp = require('mkdirp');
+
+let data_path = __dirname + '/';
+let log_path = __dirname + '/log';
+const LOGGER_CACHE = {};
+const LOGFILE_CACHE = {};
 
 //日志等级
-var LEVELS = {
+const LEVELS = {
     //访问日志 编号？
     0: 'ACCESS',
     3: 'ACCESS_ERROR',
@@ -32,7 +37,7 @@ for (var num in LEVELS) {
     LEVELS_REVERSE[LEVELS[num]] = num;
 }
 
-//debug模式下应用日志等级对应的颜色
+// debug 模式下应用日志等级对应的颜色
 var COLORS = {
     1: 'red',
     2: 'yellow',
@@ -41,13 +46,17 @@ var COLORS = {
     16: 'blue'
 };
 
+if (process.env.NODE_ENV !== 'production') {
+    colors.setTheme(COLORS);
+}
+
 var Logger = function (opts, req) {
-    //模板文件地址，可以不填
+    // 模板文件地址，可以不填
     if (opts && opts['data_path']) {
         data_path = opts['data_path'];
     }
 
-    //用户只需要填写log_path配置
+    // 用户只需要填写log_path配置
     if (opts && opts['log_path']) {
         log_path = opts['log_path'];
     }
@@ -236,7 +245,12 @@ Logger.prototype = {
     },
 
     //初始化请求相关的参数
-    parseReqParams: function (req, res) {
+    parseReqParams: function (context) {
+
+        var req = context.req;
+        var res = context.res;
+        var app = context.app;
+
         if (!req || !req.headers || !res) {
             return false;
         }
@@ -248,7 +262,7 @@ Logger.prototype = {
         this.params['SERVER_ADDR'] = req.headers.host;
         this.params['SERVER_PROTOCOL'] = String(req.protocol).toUpperCase();
         this.params['REQUEST_METHOD'] = req.method || '';
-        this.params['SERVER_PORT'] = req.app.settings ? req.app.settings.port : '';
+        this.params['SERVER_PORT'] = app.settings ? app.settings.port : '';
         this.params['QUERY_STRING'] = req.query;
         this.params['REQUEST_URI'] = req.originalUrl;
         this.params['HOSTNAME'] = req.hostname;
@@ -286,7 +300,7 @@ Logger.prototype = {
             if (req.headers[logIDName]) {
                 logId = parseInt(req.headers[logIDName], 10);
             }
-            else if (parseInt(req.query['logid'], 10) > 0) {
+            else if (req.query && parseInt(req.query['logid'], 10) > 0) {
                 logId = parseInt(req.query['logid'], 10);
             }
             else if (parseInt(this.getCookie('logid'), 10) > 0) {
@@ -303,6 +317,7 @@ Logger.prototype = {
 
     //获取日志文件地址。注意访问日志与应用日志的差异
     getLogFile: function (intLevel) {
+
         var prefix = this.getLogPrefix() || 'yog';
         var logFile = '',
             log_path = '';
@@ -332,6 +347,7 @@ Logger.prototype = {
      * @return {[type]}            [description]
      */
     writeLog: function (intLevel, options, log_format) {
+
         //日志等级高于配置则不输出日志
         if ((intLevel > this.opts['intLevel'] || !LEVELS[intLevel]) && !this.opts['debug']) {
             return false;
@@ -363,6 +379,7 @@ Logger.prototype = {
 
         var format = log_format || this.format['DEFAULT'];
         var str = this.getLogString(format);
+
         if (!str) {
             return false;
         }
@@ -393,13 +410,17 @@ Logger.prototype = {
                 }
             }
             var pathname = path.dirname(logFile);
+
             if (!fs.existsSync(pathname)) {
                 mkdirp.sync(pathname);
             }
+
             fdCache[logFile] = fs.createWriteStream(logFile, {
                 'flags': 'a'
             });
+
         }
+
         fdCache[logFile].write(str);
     },
 
@@ -642,53 +663,58 @@ module.exports = function (config) {
 
     config = config || {};
 
-    return function (req, res, next) {
-        var current;
-        var logger;
-        current = domain.create();
-        logger = new Logger(config, req);
-        current.add(logger);
-        current.logger = logger; // Add request object to custom property
+    return function* (next) {
+
+        const req = this.req;
+        const res = this.res;
+        const request = this.request;
+
+        const logger = new Logger(config, req);
 
         function logRequest() {
+
             res.removeListener('finish', logRequest);
             res.removeListener('close', logRequest);
-            //以下参数需要在response finish的时候计算
-            logger.params['STATUS'] = res._header ? res.statusCode : null;
-            logger.params['CONTENT_LENGTH'] = (res._headers || {})['content-length'] || '-';
+
+            // 以下参数需要在response finish的时候计算
+            logger.params.STATUS = res._header ? res.statusCode : null;
+            logger.params.CONTENT_LENGTH = (res._headers || {})['content-length'] || '-';
+
             if (req._startAt) {
-                var diff = process.hrtime(req._startAt);
-                var ms = diff[0] * 1e3 + diff[1] * 1e-6;
-                logger.params['REQUEST_TIME'] = ms.toFixed(3);
+                const diff = process.hrtime(req._startAt);
+                const ms = diff[0] * 1e3 + diff[1] * 1e-6;
+                logger.params.REQUEST_TIME = ms.toFixed(3);
             }
-            //不区分访问错误日志
+
+            // 不区分访问错误日志
             logger.log('ACCESS');
         }
 
 
-        //只在请求过来的时候才设置LogId
-        logger.params['LogId'] = logger.getLogID(req, config.LogIdName || 'x_bd_logid');
-        logger.parseReqParams(req, res);
+        // 只在请求过来的时候才设置 LogId
+        logger.params.LogId = logger.getLogID(req, config.LogIdName || 'x_bd_logid');
+        logger.parseReqParams(this);
 
-        //response-time启动埋点
+        // response-time 启动埋点
         req._startAt = process.hrtime();
 
         res.once('finish', logRequest);
         res.once('close', logRequest);
 
-        res.on('log', function (e, level) {
-            var option = e || {};
-            level = level || 'notice';
-            // logger.parseReqParams(req, res);
-            logger.log(level, option);
-        });
-
-        //只要url设置了_node_debug参数，则开启debug模式，console.log输出日志
-        if (req.query && req.query._node_debug) {
-            logger.opts['debug'] = 1;
+        // 只要url设置了 _node_debug 参数，则开启debug模式，console.log输出日志
+        if (request.query && request.query._node_debug) {
+            logger.opts.debug = 1;
         }
 
-        current.run(next);
+        Object.defineProperty(this, 'logger', {
+            enumerable: false,
+            configurable: false,
+            writable: false,
+            value: logger
+        });
+
+        yield next;
+
     };
 };
 
