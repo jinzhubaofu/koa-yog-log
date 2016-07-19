@@ -654,7 +654,7 @@ Logger.prototype = {
 function requireFromString(src, filename) {
     var Module = module.constructor;
     var m = new Module();
-    m._compile(src, filename);
+    m._compile(src, filename || 'whatever');
     return m.exports;
 }
 
